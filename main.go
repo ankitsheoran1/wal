@@ -30,7 +30,7 @@ type WAL struct {
 	buff           *bufio.Writer
 	currSegment    *os.File
 	enableSync     bool
-	lock           *sync.Mutex
+	lock           sync.Mutex
 	dir            string
 	lastSeq        uint64
 	maxFileSz      uint64
@@ -97,6 +97,7 @@ func Create(enableSync bool, maxFileSz uint64, maxSegments uint64, dir string) (
 		maxSegments:    maxSegments,
 		lastSeq:        0,
 		syncInterval:   time.NewTimer(100),
+		lock:           sync.Mutex{},
 	}
 
 	entry, err := wal.lastLogSeq()
@@ -435,6 +436,48 @@ func (wal *WAL) repair() ([]*WALEntry, error) {
 		entries = append(entries, &entry)
 
 	}
+}
+
+func readAll() {
+
+}
+
+func (wal *WAL) readAll() ([]*WALEntry, error) {
+	file, err := os.OpenFile(wal.currSegment.Name(), os.O_RDWR, 0644)
+	if err != nil {
+		return nil, err
+	}
+	_, err = file.Seek(0, io.SeekStart)
+	if err != nil {
+		return nil, err
+	}
+
+	entries := make([]*WALEntry, 0)
+	for {
+		var sz int32
+		if err := binary.Read(file, binary.LittleEndian, &sz); err != nil {
+			if err == io.EOF {
+				return entries, nil
+			}
+
+			return entries, err
+		}
+		data := make([]byte, sz)
+		if _, err := io.ReadFull(file, data); err != nil {
+			return entries, err
+		}
+		var entry WALEntry
+		if err := json.Unmarshal(data, &entry); err != nil {
+			return entries, err
+		}
+		if !verify(&entry) {
+			return entries, fmt.Errorf("CRC check failed")
+		}
+		entries = append(entries, &entry)
+	}
+
+	return entries, nil
+
 }
 
 func main() {
