@@ -9,6 +9,7 @@ import (
 	"hash/crc32"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -104,8 +105,25 @@ func Create(enableSync bool, maxFileSz uint64, maxSegments uint64, dir string) (
 	}
 	wal.lastSeq = entry.Seq
 
+	wal.syncCron()
+
 	return &wal, nil
 
+}
+
+func (wal *WAL) syncCron() {
+	for {
+		select {
+		case <-wal.syncInterval.C:
+			wal.lock.Lock()
+			err := wal.sync()
+			wal.lock.Unlock()
+
+			if err != nil {
+				log.Printf("Error while performing sync: %v", err)
+			}
+		}
+	}
 }
 
 func (wal *WAL) lastLogSeq() (*WALEntry, error) {
@@ -240,6 +258,8 @@ func (wal *WAL) sync() error {
 		return err
 	}
 
+	wal.syncInterval.Reset(100)
+
 	return nil
 
 }
@@ -274,6 +294,7 @@ func (wal *WAL) rotateLog() error {
 	wal.currSegment = file
 	wal.currSegmentIdx = currIdx
 	wal.buff = bufio.NewWriter(file)
+
 	return nil
 }
 
