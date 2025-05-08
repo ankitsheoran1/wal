@@ -22,6 +22,7 @@ type Record struct {
 
 func TestCreate(t *testing.T) {
 	wal, err := Create(true, 1024, 10, "test")
+	fmt.Println("======wal is ==============", wal)
 	entries := []Record{
 		{Key: "key1", Value: []byte("value1"), Op: InsertOperation},
 		{Key: "key2", Value: []byte("value2"), Op: InsertOperation},

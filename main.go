@@ -81,13 +81,16 @@ func Create(enableSync bool, maxFileSz uint64, maxSegments uint64, dir string) (
 	fmt.Println("$$$$$$$$$$$$$$$$$$$$$$$$", currSegment)
 
 	file, err := os.OpenFile(filepath.Join(dir, fmt.Sprintf("seg_%d", currSegment)), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	fmt.Println("++++++++++++++++++++++", file, err)
 	if err != nil {
 		fmt.Println("________error_________", err)
 		return nil, err
 	}
 	if _, err := file.Seek(0, io.SeekEnd); err != nil {
+
 		return nil, err
 	}
+	fmt.Println("==============1=============", err)
 
 	wal := WAL{
 		enableSync:     enableSync,
@@ -98,15 +101,22 @@ func Create(enableSync bool, maxFileSz uint64, maxSegments uint64, dir string) (
 		lastSeq:        0,
 		syncInterval:   time.NewTimer(100),
 		lock:           sync.Mutex{},
+		currSegment:    file,
+		buff:           bufio.NewWriter(file),
 	}
 
 	entry, err := wal.lastLogSeq()
-	if err != nil || entry == nil {
+	fmt.Println("************************", entry, err)
+	if err != nil {
 		return nil, err
 	}
-	wal.lastSeq = entry.Seq
+	if entry == nil {
+		wal.lastSeq = 0
+	} else {
+		wal.lastSeq = entry.Seq
+	}
 
-	wal.syncCron()
+	go wal.syncCron()
 
 	return &wal, nil
 
