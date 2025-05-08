@@ -351,6 +351,92 @@ func (wal *WAL) rotateIFRequired() error {
 
 }
 
+func (wal *WAL) replace(entries []*WALEntry) error {
+	temp_path := fmt.Sprintf("%s.tmp", wal.currSegment.Name())
+	temp_file, err := os.OpenFile(temp_path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	for _, entrie := range entries {
+		data, err := json.Marshal(entrie)
+		if err != nil {
+			return err
+		}
+		if err := binary.Write(temp_file, binary.LittleEndian, len(data)); err != nil {
+			return err
+		}
+		if _, err := temp_file.Write(data); err != nil {
+			return err
+		}
+
+	}
+
+	err = temp_file.Close()
+	if err == nil {
+		return err
+	}
+
+	if err := os.Rename(temp_path, wal.currSegment.Name()); err != nil {
+		return err
+	}
+
+	return nil
+
+}
+
+func (wal *WAL) repair() ([]*WALEntry, error) {
+	file, err := os.OpenFile(wal.currSegment.Name(), os.O_RDONLY, 0644)
+	if err != nil {
+		return nil, err
+	}
+
+	entries := make([]*WALEntry, 0)
+	defer file.Close()
+	for {
+		var size int32
+		if err := binary.Read(file, binary.LittleEndian, &size); err != nil {
+			if err == io.EOF {
+				// End of file reached, no corruption found.
+				return entries, err
+			}
+			log.Printf("Error while reading entry size: %v", err)
+			// Truncate the file at this point.
+			if err := wal.replace(entries); err != nil {
+				return entries, err
+			}
+			return nil, nil
+		}
+		data := make([]byte, size)
+		if _, err := io.ReadFull(file, data); err != nil {
+			if err := wal.replace(entries); err != nil {
+				return entries, err
+			}
+			return entries, nil
+		}
+		var entry WALEntry
+		if err := json.Unmarshal(data, &entry); err != nil {
+			if err := wal.replace(entries); err != nil {
+				return entries, err
+			}
+			return entries, nil
+		}
+
+		if !verify(&entry) {
+			log.Printf("CRC mismatch: data may be corrupted")
+			// Truncate the file at this point
+			if err := wal.replace(entries); err != nil {
+				return entries, err
+			}
+
+			return entries, nil
+		}
+
+		// Add the entry to the slice.
+		entries = append(entries, &entry)
+
+	}
+}
+
 func main() {
 
 }
