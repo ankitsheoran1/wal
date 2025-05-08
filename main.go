@@ -195,6 +195,141 @@ func createSegment(dir string, segIdx uint64) (*os.File, error) {
 	return os.Create(path)
 }
 
+func (wal *WAL) oldestSegment() (uint64, error) {
+	files, err := filepath.Glob(filepath.Join(wal.dir, "seg_"+"*"))
+	if err != nil {
+		return 0, err
+	}
+	var minSegID uint64
+	for _, file := range files {
+		_, seg := filepath.Split(file)
+		segID, err := strconv.Atoi(strings.TrimPrefix(seg, "seg-"))
+		if err != nil {
+			return 0, err
+		}
+		if minSegID > uint64(segID) {
+			minSegID = uint64(segID)
+		}
+	}
+
+	return minSegID, nil
+
+}
+
+func (wal *WAL) deleteOldestSegment() error {
+	segID, err := wal.oldestSegment()
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(wal.dir, fmt.Sprintf("seg_%d", segID))
+	err = os.Remove(path)
+	if err != nil {
+		return err
+	}
+
+	return nil
+
+}
+
+func (wal *WAL) sync() error {
+	if err := wal.buff.Flush(); err != nil {
+		return err
+	}
+
+	if err := wal.currSegment.Sync(); err != nil {
+		return err
+	}
+
+	return nil
+
+}
+
+func (wal *WAL) rotateLog() error {
+
+	if err := wal.sync(); err != nil {
+		return err
+	}
+
+	if err := wal.currSegment.Close(); err != nil {
+		return err
+	}
+
+	currIdx := wal.currSegmentIdx
+	currIdx++
+	files, err := filepath.Glob(filepath.Join(wal.dir, "seg_"+"*"))
+	if err != nil {
+		return err
+	}
+	if uint64(len(files)) > currIdx {
+		if err := wal.deleteOldestSegment(); err != nil {
+			return err
+		}
+	}
+
+	// create a new file
+	file, err := os.Create(filepath.Join(wal.dir, fmt.Sprintf("seg_%d", wal.currSegmentIdx)))
+	if err != nil {
+		return err
+	}
+	wal.currSegment = file
+	wal.currSegmentIdx = currIdx
+	wal.buff = bufio.NewWriter(file)
+	return nil
+}
+
+func (wal *WAL) write(data []byte, isCheckpoint bool) error {
+	wal.lock.Lock()
+	defer wal.lock.Unlock()
+	if err := wal.rotateIFRequired(); err != nil {
+		return err
+	}
+	entry := WALEntry{
+		Data:       data,
+		Seq:        wal.lastSeq + 1,
+		CRC:        crc32.ChecksumIEEE(append(data, byte(wal.lastSeq+1))),
+		CheckPoint: isCheckpoint,
+	}
+
+	if isCheckpoint {
+		if err := wal.sync(); err != nil {
+			return err
+		}
+	}
+
+	return wal.writeToBuffer(entry)
+}
+
+func (wal *WAL) writeToBuffer(entry WALEntry) error {
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+	if err := binary.Write(wal.buff, binary.LittleEndian, int32(len(data))); err != nil {
+		return err
+	}
+	_, err = wal.buff.Write(data)
+
+	return err
+
+}
+
+func (wal *WAL) rotateIFRequired() error {
+	stats, err := os.Stat(filepath.Join(wal.dir, fmt.Sprintf("seg_%d", wal.currSegmentIdx)))
+	if err != nil {
+		return nil
+	}
+	// check size of data
+	if wal.maxFileSz > uint64(stats.Size())+uint64(wal.buff.Size()) {
+		err = wal.rotateLog()
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+
+}
+
 func main() {
 
 }
