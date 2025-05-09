@@ -78,19 +78,14 @@ func Create(enableSync bool, maxFileSz uint64, maxSegments uint64, dir string) (
 
 	}
 
-	fmt.Println("$$$$$$$$$$$$$$$$$$$$$$$$", currSegment)
-
 	file, err := os.OpenFile(filepath.Join(dir, fmt.Sprintf("seg_%d", currSegment)), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	fmt.Println("++++++++++++++++++++++", file, err)
 	if err != nil {
-		fmt.Println("________error_________", err)
 		return nil, err
 	}
 	if _, err := file.Seek(0, io.SeekEnd); err != nil {
 
 		return nil, err
 	}
-	fmt.Println("==============1=============", err)
 
 	wal := WAL{
 		enableSync:     enableSync,
@@ -106,7 +101,6 @@ func Create(enableSync bool, maxFileSz uint64, maxSegments uint64, dir string) (
 	}
 
 	entry, err := wal.lastLogSeq()
-	fmt.Println("************************", entry, err)
 	if err != nil {
 		return nil, err
 	}
@@ -202,11 +196,9 @@ func verify(entry *WALEntry) bool {
 }
 
 func lastSegIdx(files []string) (uint64, error) {
-	fmt.Println("************************", files)
 	var currSegment uint64
 	for _, file := range files {
 		_, segment := filepath.Split(file)
-		fmt.Println("^^^^^^^^^^^^^seg^^^^^^^^^", segment)
 		segID, err := strconv.Atoi(strings.TrimPrefix(segment, "seg_"))
 		if err != nil {
 			return 0, err

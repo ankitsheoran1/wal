@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/stretchr/testify/assert"
 	"os"
 	"reflect"
@@ -25,7 +24,6 @@ type Record struct {
 func TestCreate(t *testing.T) {
 	wal, err := Create(true, 1024, 10, "test")
 	defer os.RemoveAll("test")
-	fmt.Println("======wal is ==============", wal)
 	entries := []Record{
 		{Key: "key1", Value: []byte("value1"), Op: InsertOperation},
 		{Key: "key2", Value: []byte("value2"), Op: InsertOperation},
@@ -38,11 +36,9 @@ func TestCreate(t *testing.T) {
 	}
 
 	recoveredEntries, err := wal.readAll()
-	fmt.Println("++++++++++++++length is ++++++++++++", len(recoveredEntries))
 	for entryIndex, entry := range recoveredEntries {
 		unMarshalledEntry := Record{}
 		assert.NoError(t, json.Unmarshal(entry.Data, &unMarshalledEntry), "Failed to unmarshal entry")
-		fmt.Println("========each read entry=======", unMarshalledEntry.Key)
 
 		// Can't use deep equal because of the sequence number
 		assert.Equal(t, entries[entryIndex].Key, unMarshalledEntry.Key, "Recovered entry does not match written entry (Key)")
@@ -50,7 +46,4 @@ func TestCreate(t *testing.T) {
 		assert.True(t, reflect.DeepEqual(entries[entryIndex].Value, unMarshalledEntry.Value), "Recovered entry does not match written entry (Value)")
 	}
 	assert.NoError(t, err, "Failed to recover entries")
-
-	fmt.Println("===============", err)
-	fmt.Println("++++++++++++++++++++", wal)
 }
